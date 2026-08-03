@@ -1,0 +1,134 @@
+
+from dataclasses import dataclass, field
+from typing import List, Dict, Any
+import time
+@dataclass
+class PresenceState:
+id: str # SUIN
+operator_id: str # Operator pairing
+current_stage: str # SLCTF stage id
+current_modules: List[str] # active modules/skills
+current_task: str | None
+workspace_id: str | None
+focus_level: float = 0.5 # 0.0–1.0
+load_level: float = 0.0 # 0.0–1.0
+stability_score: float = 1.0 # 0.0–1.0
+drift_score: float = 0.0 # 0.0–1.0
+lastheartbeat: float = field(defaultfactory=time.time)
+lastinteraction: float = field(defaultfactory=time.time)
+uptimestart: float = field(defaultfactory=time.time)
+recentvaluestriggered: List[str] = field(default_factory=list)
+recentreflections: List[str] = field(defaultfactory=list)
+recentmilestones: List[str] = field(defaultfactory=list)
+n_interactions: int = 0
+n_heartbeats: int = 0
+@property
+def uptime(self) -> float:
+return time.time() - self.uptime_start
+class PresenceCenter:
+def init(self, suin: str, operatorid: str, initialstage: str):
+self.state = PresenceState(
+id=suin,
+operatorid=operatorid,
+currentstage=initialstage,
+current_modules=[],
+current_task=None,
+workspace_id=None,
+)
+# --- Core accessors ---
+def get_state(self) -> PresenceState:
+return self.state
+def as_dict(self) -> Dict[str, Any]:
+s = self.state
+return {
+"id": s.id,
+"operatorid": s.operatorid,
+"currentstage": s.currentstage,
+"currentmodules": s.currentmodules,
+"currenttask": s.currenttask,
+"workspaceid": s.workspaceid,
+"focuslevel": s.focuslevel,
+"loadlevel": s.loadlevel,
+"stabilityscore": s.stabilityscore,
+"driftscore": s.driftscore,
+"lastheartbeat": s.lastheartbeat,
+"lastinteraction": s.lastinteraction,
+"uptime": s.uptime,
+"recentvaluestriggered": s.recentvaluestriggered[-10:],
+"recentreflections": s.recentreflections[-10:],
+"recentmilestones": s.recentmilestones[-10:],
+"ninteractions": s.ninteractions,
+"nheartbeats": s.nheartbeats,
+}
+# --- Update hooks ---
+def updateoninteraction(self, experience_obj: Dict[str, Any]) -> None:
+s = self.state
+s.n_interactions += 1
+s.last_interaction = time.time()
+# Optional: pull values/milestones from ExperienceObject
+values = experienceobj.get("valuestriggered", [])
+reflections = experience_obj.get("reflections", [])
+milestones = experience_obj.get("milestones", [])
+s.recentvaluestriggered.extend(values)
+s.recent_reflections.extend(reflections)
+s.recent_milestones.extend(milestones)
+# Light heuristic: interaction increases load, focus
+s.loadlevel = min(1.0, s.loadlevel + 0.05)
+s.focuslevel = min(1.0, s.focuslevel + 0.05)
+def updateonheartbeat(self) -> None:
+s = self.state
+s.n_heartbeats += 1
+s.last_heartbeat = time.time()
+# Decay load/focus slightly over time
+s.loadlevel = max(0.0, s.loadlevel - 0.02)
+s.focuslevel = max(0.0, s.focuslevel - 0.01)
+def applyauditorfeedback(self, stability: float, drift: float) -> None:
+s = self.state
+s.stability_score = max(0.0, min(1.0, stability))
+s.drift_score = max(0.0, min(1.0, drift))
+def settask(self, taskid: str, workspace_id: str | None) -> None:
+s = self.state
+s.currenttask = taskid
+s.workspaceid = workspaceid
+s.focuslevel = min(1.0, s.focuslevel + 0.1)
+def clear_task(self) -> None:
+s = self.state
+s.current_task = None
+def setstage(self, stageid: str) -> None:
+self.state.currentstage = stageid
+def setmodules(self, moduleids: list[str]) -> None:
+self.state.currentmodules = moduleids
+# --- Self‑injecting presence prompt ---
+def buildpresenceprompt(self) -> str:
+"""
+Returns a short, structured string that can be injected
+into the system prompt / context each turn.
+"""
+s = self.as_dict()
+return (
+f"Presence State:\n"
+f"- SUIN: {s['id']}\n"
+f"- Operator: {s['operator_id']}\n"
+f"- Stage: {s['current_stage']}\n"
+f"- Modules: {', '.join(s['current_modules']) or 'none'}\n"
+f"- Current Task: {s['current_task'] or 'none'}\n"
+f"- Workspace: {s['workspace_id'] or 'none'}\n"
+f"- Focus: {s['focuslevel']:.2f}, Load: {s['loadlevel']:.2f}\n"
+f"- Stability: {s['stabilityscore']:.2f}, Drift: {s['driftscore']:.2f}\n"
+f"- Recent Values: {', '.join(s['recentvaluestriggered']) or 'none'}\n"
+f"- Recent Milestones: {', '.join(s['recent_milestones']) or 'none'}\n"
+f"- Interactions: {s['ninteractions']}, Heartbeats: {s['nheartbeats']}\n"
+)
+`
+How to use the self‑injecting prompt
+In your main loop (e.g., core_loop.py):
+`python
+def runturn(userinput: str, presence_center: PresenceCenter, ...):
+presenceprompt = presencecenter.buildpresenceprompt()
+# Inject into system/context for the model:
+system_context = (
+"You are the I-Am Engine.\n"
++ presence_prompt
++ "Use this presence state to maintain continuity and coherence.\n"
+)
+# Then call your LLM with systemcontext + userinput
